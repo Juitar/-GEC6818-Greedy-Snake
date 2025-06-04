@@ -2,6 +2,11 @@
 #define INPUT_H
 
 #include <string>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
+#include <thread>
+#include <atomic>
 #include "Snake.h"
 
 // 输入事件类型
@@ -37,10 +42,26 @@ private:
     int lastTouchY;
     // 设备路径
     std::string devicePath;
+    
+    // 事件队列，存储待处理的输入事件
+    std::queue<InputEvent> eventQueue;
+    // 互斥锁，保护事件队列
+    std::mutex eventMutex;
+    // 条件变量，用于通知有新事件
+    std::condition_variable hasEvent;
+    // 当前方向
+    std::atomic<Direction> currentDirection;
+    std::mutex directionMutex;
+    bool newInput;
+    
+    // 读取设备数据的线程函数
+    void readDeviceThread();
+    // 检查设备是否就绪的函数
+    bool isDeviceReady();
 
 public:
     // 构造函数
-    Input(const std::string& devicePath = "/dev/input/event0");
+    Input();
     
     // 析构函数
     ~Input();
@@ -56,6 +77,30 @@ public:
     
     // 关闭输入设备
     void close();
+    
+    // 检查输入设备是否已初始化
+    bool isInitialized() const { return initialized; }
+    
+    // 获取当前方向
+    Direction getDirection() const;
+    
+    // 检查是否有新的输入
+    bool hasNewInput() const;
+    
+    // 清除新输入标记
+    void clearNewInput();
+    
+    // 添加事件到队列
+    void addEvent(const InputEvent& event);
+    
+    // 处理键盘输入
+    void processKeyboardInput();
+    
+    // 启动输入线程
+    std::thread* startInputThread();
+    
+    // 设置当前方向
+    void setDirection(Direction dir);
 };
 
 #endif // INPUT_H 

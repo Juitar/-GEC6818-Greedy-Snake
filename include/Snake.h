@@ -19,8 +19,12 @@ private:
     std::vector<std::pair<int, int>> body;
     // 蛇移动方向
     Direction direction;
+    // 上一次尝试改变的方向
+    Direction lastDirectionChange;
     // 蛇是否存活
     bool alive;
+    // 标记蛇是否正在生长
+    bool growing;
 
 public:
     // 构造函数
@@ -34,6 +38,9 @@ public:
     
     // 增长蛇的长度
     void grow();
+    
+    // 使蛇缩短（减少一个单位长度）
+    void shrink();
     
     // 检查蛇是否吃到了食物
     bool checkEat(int foodX, int foodY) const;

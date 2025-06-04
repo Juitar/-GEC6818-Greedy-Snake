@@ -1,4 +1,4 @@
-CC = g++
+CC = arm-linux-g++
 CFLAGS = -std=c++11 -Wall -Wextra
 LDFLAGS = -lpthread
 
@@ -6,6 +6,7 @@ SRC_DIR = src
 INC_DIR = include
 OBJ_DIR = obj
 BIN_DIR = bin
+ASSETS_DIR = assets/pic
 
 # 源文件
 SRCS = $(wildcard $(SRC_DIR)/*.cpp)
@@ -36,6 +37,6 @@ clean:
 
 # 运行
 run: all
-	$(TARGET)
+	$(TARGET) $(ASSETS_DIR)
 
 .PHONY: all clean run directories

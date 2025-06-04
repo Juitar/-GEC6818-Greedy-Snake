@@ -7,14 +7,12 @@
 #include <cstring>
 #include <linux/input.h>
 #include <cmath>
+#include <poll.h>
+#include <thread>
+#include <mutex>
 
 // 构造函数
-Input::Input(const std::string& devicePath) : 
-    touchFd(-1), 
-    initialized(false),
-    lastTouchX(0),
-    lastTouchY(0),
-    devicePath(devicePath) {
+Input::Input() : currentDirection(Direction::RIGHT), newInput(false), touchFd(-1), initialized(false) {
 }
 
 // 析构函数
@@ -24,52 +22,62 @@ Input::~Input() {
 
 // 初始化输入设备
 bool Input::initialize() {
-    if (initialized) {
-        return true;
-    }
-    
-    // 打开触摸屏设备文件
-    touchFd = open(devicePath.c_str(), O_RDONLY);
+    // 尝试打开触摸屏设备
+    touchFd = open("/dev/input/event0", O_RDONLY | O_NONBLOCK);
     if (touchFd == -1) {
-        std::cerr << "Error opening touch device: " << strerror(errno) << std::endl;
-        return false;
+        std::cerr << "Warning: Could not open touch device, falling back to keyboard input" << std::endl;
+    } else {
+        std::cout << "Touch device initialized successfully!" << std::endl;
     }
     
     initialized = true;
-    std::cout << "Touch device initialized successfully!" << std::endl;
     return true;
 }
 
-// 获取输入事件
-bool Input::getEvent(InputEvent& event) {
-    if (!initialized) {
+// 检查设备是否就绪
+bool Input::isDeviceReady() {
+    if (touchFd == -1) {
         return false;
     }
     
+    struct pollfd pfd;
+    pfd.fd = touchFd;
+    pfd.events = POLLIN;
+    
+    // 轮询设备，超时时间为0（非阻塞）
+    int ret = poll(&pfd, 1, 0);
+    
+    return (ret > 0 && (pfd.revents & POLLIN));
+}
+
+// 读取设备数据的线程函数
+void Input::readDeviceThread() {
     struct input_event ev;
     ssize_t res;
+    int x = 0, y = 0;
+    int x0 = 0, y0 = 0;
     
-    // 非阻塞方式读取触摸屏数据
-    fd_set fds;
-    FD_ZERO(&fds);
-    FD_SET(touchFd, &fds);
-    
-    struct timeval tv;
-    tv.tv_sec = 0;
-    tv.tv_usec = 0;
-    
-    if (select(touchFd + 1, &fds, NULL, NULL, &tv) > 0) {
-        res = read(touchFd, &ev, sizeof(ev));
-        if (res == -1) {
-            std::cerr << "Error reading touch device: " << strerror(errno) << std::endl;
-            return false;
-        } else if (res != sizeof(ev)) {
-            std::cerr << "Incomplete read from touch device" << std::endl;
-            return false;
+    while (touchFd != -1) {
+        // 检查设备是否就绪
+        if (!isDeviceReady()) {
+            // 如果设备没有数据，短暂休眠减少CPU占用
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
         }
         
-        static int x = 0, y = 0;
-        static int x0 = 0, y0 = 0;
+        // 读取触摸屏数据
+        res = read(touchFd, &ev, sizeof(ev));
+        if (res == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // 非阻塞模式下，没有数据可读
+                continue;
+            }
+            std::cerr << "Error reading touch device: " << strerror(errno) << std::endl;
+            continue;
+        } else if (res != sizeof(ev)) {
+            std::cerr << "Incomplete read from touch device" << std::endl;
+            continue;
+        }
         
         // 分析触摸屏数据
         if (ev.type == EV_ABS) {
@@ -92,84 +100,181 @@ bool Input::getEvent(InputEvent& event) {
                 // 获取起始点坐标
                 x0 = x;
                 y0 = y;
+                
+                // 创建按下事件
+                InputEvent event;
                 event.type = InputEventType::TOUCH_DOWN;
                 event.x = x;
                 event.y = y;
-                return true;
+                addEvent(event);
+                
             } else if (ev.value == 0) {
                 // 触摸屏被释放(手指离开触摸屏)
+                // 创建释放事件
+                InputEvent event;
+                event.type = InputEventType::TOUCH_UP;
+                event.x = x;
+                event.y = y;
+                
                 // 判断滑动方向
                 if (std::abs(x - x0) >= std::abs(y - y0) && std::abs(x - x0) >= 30) {
                     // 水平方向滑动
                     if (x > x0) {
                         // 向右滑
                         event.type = InputEventType::TOUCH_MOVE;
-                        event.x = x;
-                        event.y = y;
                         event.direction = Direction::RIGHT;
-                        return true;
                     } else {
                         // 向左滑
                         event.type = InputEventType::TOUCH_MOVE;
-                        event.x = x;
-                        event.y = y;
                         event.direction = Direction::LEFT;
-                        return true;
                     }
                 } else if (std::abs(x - x0) < std::abs(y - y0) && std::abs(y - y0) >= 30) {
                     // 垂直方向滑动
                     if (y > y0) {
                         // 向下滑
                         event.type = InputEventType::TOUCH_MOVE;
-                        event.x = x;
-                        event.y = y;
                         event.direction = Direction::DOWN;
-                        return true;
                     } else {
                         // 向上滑
                         event.type = InputEventType::TOUCH_MOVE;
-                        event.x = x;
-                        event.y = y;
                         event.direction = Direction::UP;
-                        return true;
                     }
-                } else {
-                    // 点击事件
-                    event.type = InputEventType::TOUCH_UP;
-                    event.x = x;
-                    event.y = y;
-                    return true;
+                }
+                
+                // 添加事件到队列
+                if (event.type == InputEventType::TOUCH_MOVE) {
+                    addEvent(event);
+                    
+                    // 立即更新方向，提高响应速度
+                    Direction newDirection = convertEventToDirection(event, currentDirection);
+                    if (newDirection != currentDirection) {
+                        currentDirection = newDirection;
+                        newInput = true;
+                    }
                 }
             }
         }
     }
-    return false;
+}
+
+// 添加事件到队列
+void Input::addEvent(const InputEvent& event) {
+    {
+        std::lock_guard<std::mutex> lock(eventMutex);
+        eventQueue.push(event);
+    }
+    hasEvent.notify_one();
+}
+
+// 获取输入事件
+bool Input::getEvent(InputEvent& event) {
+    if (touchFd == -1) {
+        return false;
+    }
+    
+    std::unique_lock<std::mutex> lock(eventMutex);
+    if (eventQueue.empty()) {
+        // 非阻塞模式，队列为空时立即返回
+        return false;
+    }
+    
+    event = eventQueue.front();
+    eventQueue.pop();
+    return true;
+}
+
+// 处理键盘输入
+void Input::processKeyboardInput() {
+    // 非阻塞方式读取键盘输入
+    struct pollfd pfd;
+    pfd.fd = STDIN_FILENO;
+    pfd.events = POLLIN;
+    
+    int ret = poll(&pfd, 1, 0);
+    if (ret > 0 && (pfd.revents & POLLIN)) {
+        char c;
+        if (read(STDIN_FILENO, &c, 1) > 0) {
+            Direction newDir = currentDirection;
+            
+            // 根据输入的键值确定方向
+            switch (c) {
+                case 'w': // 上
+                    newDir = Direction::UP;
+                    break;
+                case 's': // 下
+                    newDir = Direction::DOWN;
+                    break;
+                case 'a': // 左
+                    newDir = Direction::LEFT;
+                    break;
+                case 'd': // 右
+                    newDir = Direction::RIGHT;
+                    break;
+                default:
+                    // 其他键不处理
+                    return;
+            }
+            
+            // 设置新方向
+            setDirection(newDir);
+        }
+    }
 }
 
 // 将输入事件转换为蛇的方向
 Direction Input::convertEventToDirection(const InputEvent& event, Direction currentDirection) {
-    // 如果是移动事件，直接返回事件中的方向
+    Direction newDirection = currentDirection;
+    
+    // 根据事件类型处理
     if (event.type == InputEventType::TOUCH_MOVE) {
-        // 防止蛇直接掉头（这会导致蛇撞到自己）
-        if ((currentDirection == Direction::UP && event.direction == Direction::DOWN) ||
-            (currentDirection == Direction::DOWN && event.direction == Direction::UP) ||
-            (currentDirection == Direction::LEFT && event.direction == Direction::RIGHT) ||
-            (currentDirection == Direction::RIGHT && event.direction == Direction::LEFT)) {
-            return currentDirection;
-        }
-        return event.direction;
+        newDirection = event.direction;
+    } else if (event.type == InputEventType::KEY_PRESS) {
+        newDirection = event.direction;
     }
     
-    // 其他情况保持当前方向
-    return currentDirection;
+    // 防止蛇直接掉头（这会导致蛇撞到自己）
+    if ((currentDirection == Direction::UP && newDirection == Direction::DOWN) ||
+        (currentDirection == Direction::DOWN && newDirection == Direction::UP) ||
+        (currentDirection == Direction::LEFT && newDirection == Direction::RIGHT) ||
+        (currentDirection == Direction::RIGHT && newDirection == Direction::LEFT)) {
+        return currentDirection;
+    }
+    
+    return newDirection;
+}
+
+// 启动输入线程
+std::thread* Input::startInputThread() {
+    return new std::thread(&Input::readDeviceThread, this);
 }
 
 // 关闭输入设备
 void Input::close() {
-    if (initialized && touchFd != -1) {
+    if (touchFd != -1) {
         ::close(touchFd);
         touchFd = -1;
-        initialized = false;
-        std::cout << "Touch device closed!" << std::endl;
     }
+}
+
+// 设置当前方向
+void Input::setDirection(Direction dir) {
+    std::lock_guard<std::mutex> lock(directionMutex);
+    currentDirection = dir;
+    newInput = true;
+}
+
+// 获取当前方向
+Direction Input::getDirection() const {
+    return currentDirection;
+}
+
+// 检查是否有新的输入
+bool Input::hasNewInput() const {
+    return newInput;
+}
+
+// 清除新输入标记
+void Input::clearNewInput() {
+    std::lock_guard<std::mutex> lock(directionMutex);
+    newInput = false;
 } 

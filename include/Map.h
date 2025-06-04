@@ -9,25 +9,23 @@ enum class MapElementType {
     WALL,
     SNAKE_HEAD,
     SNAKE_BODY,
-    FOOD
+    FOOD,
+    FOOD_APPLE,   // 苹果
+    FOOD_PEPPER,  // 辣椒
+    FOOD_MEAT,    // 肉
+    FOOD_BOMB     // 炸弹
 };
 
 // 地图类
 class Map {
 private:
-    // 地图宽度
-    int width;
-    // 地图高度
-    int height;
-    // 地图数据，二维数组表示地图上每个位置的元素类型
-    std::vector<std::vector<MapElementType>> data;
+    int width;  // 地图宽度
+    int height; // 地图高度
+    std::vector<std::vector<MapElementType>> grid; // 二维网格表示地图
 
 public:
     // 构造函数
     Map(int width, int height);
-    
-    // 初始化地图
-    void initialize();
     
     // 获取地图宽度
     int getWidth() const;
@@ -35,17 +33,14 @@ public:
     // 获取地图高度
     int getHeight() const;
     
-    // 设置地图上某个位置的元素类型
-    void setElement(int x, int y, MapElementType type);
-    
-    // 获取地图上某个位置的元素类型
+    // 获取指定位置的元素类型
     MapElementType getElement(int x, int y) const;
     
-    // 检查位置是否在地图范围内
-    bool isPositionValid(int x, int y) const;
+    // 设置指定位置的元素类型
+    void setElement(int x, int y, MapElementType element);
     
-    // 清空地图（将所有元素设置为EMPTY）
+    // 清空地图（将所有元素设为EMPTY）
     void clear();
 };
 
-#endif // MAP_H 
+#endif // MAP_H
