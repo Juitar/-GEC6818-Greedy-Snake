@@ -55,6 +55,9 @@ public:
     
     // 设置蛇的存活状态
     void setAlive(bool status);
+    
+    // 获取蛇的当前移动方向
+    Direction getDirection() const;
 };
 
 #endif // SNAKE_H 

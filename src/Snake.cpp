@@ -117,4 +117,9 @@ bool Snake::isAlive() const {
 // 设置蛇的存活状态
 void Snake::setAlive(bool status) {
     alive = status;
+}
+
+// 获取蛇的当前移动方向
+Direction Snake::getDirection() const {
+    return direction;
 } 

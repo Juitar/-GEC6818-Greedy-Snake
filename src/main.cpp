@@ -3,54 +3,40 @@
 #include <chrono>
 #include "../include/Game.h"
 
-// 模拟输入函数，用于测试
-Direction getInput() {
-    // 这里将来会接入真实的触摸输入
-    // 现在只是简单返回一个方向
-    return Direction::RIGHT;
-}
-
 int main() {
-    std::cout << "贪吃蛇游戏启动中..." << std::endl;
+    std::cout << "Game Starting..." << std::endl;
     
-    // 创建游戏对象，地图大小为20x20
-    Game game(20, 20);
-    
+    Game game(20,12);
     // 初始化游戏
     game.initialize();
     
-    // 开始游戏
+    // 开始游戏（这将启动所有游戏线程）
     game.start();
     
-    // 游戏主循环
+    // 主线程可以处理用户输入或其他任务
     while (game.getState() != GameState::EXIT) {
-        // 处理输入
-        Direction input = getInput();
-        game.handleInput(input);
-        
-        // 更新游戏状态
-        game.update();
-        
-        // 渲染游戏
-        game.render();
-        
-        // 根据游戏状态处理
+        // 检查游戏是否结束
         if (game.getState() == GameState::GAME_OVER) {
-            std::cout << "游戏结束！得分：" << game.getScore() << std::endl;
-            std::cout << "按任意键重新开始..." << std::endl;
+            std::cout << "Game Over! Your score is " << game.getScore() << std::endl;
             
-            // 这里将来会等待用户输入
-            std::this_thread::sleep_for(std::chrono::seconds(2));
+            // 这里模拟用户输入
+            std::cout << "Click anywhere to restart the game..." << std::endl;
+            
+            // 等待一段时间后自动重启游戏
+            std::this_thread::sleep_for(std::chrono::seconds(3));
             
             // 重置游戏
             game.reset();
             game.start();
         }
         
-        // 控制游戏速度
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        // 控制主循环频率
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     
-    std::cout << "游戏已退出。" << std::endl;
+    // 等待所有游戏线程结束
+    game.waitForThreads();
+    
+    std::cout << "Game Over." << std::endl;
     return 0;
 }

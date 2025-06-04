@@ -1,6 +1,7 @@
 #ifndef INPUT_H
 #define INPUT_H
 
+#include <string>
 #include "Snake.h"
 
 // 输入事件类型
@@ -18,7 +19,10 @@ struct InputEvent {
     InputEventType type;
     int x;
     int y;
-    int keyCode;
+    Direction direction;  // 用于TOUCH_MOVE事件
+    int keyCode;          // 用于键盘事件（预留）
+    
+    InputEvent() : type(InputEventType::NONE), x(0), y(0), direction(Direction::RIGHT), keyCode(0) {}
 };
 
 // 输入接口类
@@ -31,10 +35,12 @@ private:
     // 上一次触摸位置
     int lastTouchX;
     int lastTouchY;
+    // 设备路径
+    std::string devicePath;
 
 public:
     // 构造函数
-    Input();
+    Input(const std::string& devicePath = "/dev/input/event0");
     
     // 析构函数
     ~Input();

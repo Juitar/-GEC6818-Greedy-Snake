@@ -6,6 +6,9 @@
 #include "Snake.h"
 #include "Food.h"
 
+// 前向声明
+enum class GameState;
+
 // 显示接口类
 class Display {
 private:

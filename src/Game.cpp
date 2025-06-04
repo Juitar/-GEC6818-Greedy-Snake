@@ -1,6 +1,10 @@
 #include "../include/Game.h"
 #include <thread>
 #include <chrono>
+#include <iostream>
+
+// 初始化静态变量
+std::atomic<bool> Game::isGameOver(false);
 
 // 构造函数
 Game::Game(int mapWidth, int mapHeight) {
@@ -13,6 +17,12 @@ Game::Game(int mapWidth, int mapHeight) {
     // 创建食物对象
     food = new Food();
     
+    // 创建显示对象（预留接口）
+    display = nullptr;  // 后续实现
+    
+    // 创建输入对象
+    input = new Input("/dev/input/event0");  // 触摸屏设备路径
+    
     // 初始化游戏状态
     state = GameState::PAUSED;
     
@@ -22,13 +32,54 @@ Game::Game(int mapWidth, int mapHeight) {
     // 初始化游戏速度和难度
     speed = 200; // 毫秒
     difficulty = 1;
+    
+    // 初始化线程相关变量
+    gameRunning = false;
+    
+    // 初始化线程指针
+    inputThread = nullptr;
+    gameLoopThread = nullptr;
+    renderThread = nullptr;
+    foodThread = nullptr;
 }
 
 // 析构函数
 Game::~Game() {
+    // 确保游戏已经结束
+    end();
+    
+    // 等待所有线程结束
+    waitForThreads();
+    
+    // 释放资源
     delete snake;
     delete food;
     delete map;
+    
+    if (display != nullptr) {
+        delete display;
+    }
+    
+    if (input != nullptr) {
+        delete input;
+    }
+    
+    // 释放线程资源
+    if (inputThread != nullptr) {
+        delete inputThread;
+    }
+    
+    if (gameLoopThread != nullptr) {
+        delete gameLoopThread;
+    }
+    
+    if (renderThread != nullptr) {
+        delete renderThread;
+    }
+    
+    if (foodThread != nullptr) {
+        delete foodThread;
+    }
 }
 
 // 初始化游戏
@@ -44,12 +95,45 @@ void Game::initialize() {
     
     // 设置游戏状态为暂停
     state = GameState::PAUSED;
+    
+    // 重置游戏运行标志
+    gameRunning = false;
+    isGameOver = false;
+    
+    // 更新地图
+    updateMap();
+    
+    // 初始化输入设备
+    if (input != nullptr) {
+        input->initialize();
+    }
 }
 
 // 开始游戏
 void Game::start() {
     // 设置游戏状态为运行
     state = GameState::RUNNING;
+    gameRunning = true;
+    
+    // 启动线程
+    if (gameLoopThread == nullptr) {
+        gameLoopThread = new std::thread(&Game::gameLoop, this);
+    }
+    
+    if (renderThread == nullptr) {
+        renderThread = new std::thread(&Game::renderLoop, this);
+    }
+    
+    if (foodThread == nullptr) {
+        foodThread = new std::thread(&Game::foodManagementLoop, this);
+    }
+    
+    if (input != nullptr && inputThread == nullptr) {
+        inputThread = new std::thread(&Game::inputLoop, this);
+    }
+    
+    // 通知所有等待的线程
+    gameCondVar.notify_all();
 }
 
 // 暂停游戏
@@ -62,12 +146,39 @@ void Game::pause() {
 void Game::resume() {
     // 设置游戏状态为运行
     state = GameState::RUNNING;
+    
+    // 通知所有等待的线程
+    gameCondVar.notify_all();
 }
 
 // 结束游戏
 void Game::end() {
     // 设置游戏状态为结束
-    state = GameState::GAME_OVER;
+    state = GameState::EXIT;
+    gameRunning = false;
+    isGameOver = true;
+    
+    // 通知所有等待的线程
+    gameCondVar.notify_all();
+}
+
+// 等待所有线程结束
+void Game::waitForThreads() {
+    if (inputThread != nullptr && inputThread->joinable()) {
+        inputThread->join();
+    }
+    
+    if (gameLoopThread != nullptr && gameLoopThread->joinable()) {
+        gameLoopThread->join();
+    }
+    
+    if (renderThread != nullptr && renderThread->joinable()) {
+        renderThread->join();
+    }
+    
+    if (foodThread != nullptr && foodThread->joinable()) {
+        foodThread->join();
+    }
 }
 
 // 处理输入
@@ -110,7 +221,8 @@ void Game::update() {
         snake->setAlive(false);
         
         // 结束游戏
-        end();
+        isGameOver = true;
+        state = GameState::GAME_OVER;
     }
     
     // 更新地图
@@ -142,8 +254,18 @@ void Game::updateMap() {
 
 // 渲染游戏画面（预留接口，后续接入图像显示）
 void Game::render() {
-    // 这里将来会实现图像显示功能
-    // 目前为空实现
+    // 如果显示对象存在，则调用其绘制方法
+    if (display != nullptr) {
+        display->drawMap(map);
+        display->drawSnake(snake);
+        display->drawFood(food);
+        display->drawScore(score);
+        display->drawGameState(state);
+        display->update();
+    } else {
+        // 控制台输出（临时方案）
+        std::cout << "Score: " << score << std::endl;
+    }
 }
 
 // 获取游戏状态
@@ -184,4 +306,101 @@ void Game::reset() {
     
     // 初始化游戏
     initialize();
+}
+
+// 输入处理循环
+void Game::inputLoop() {
+    while (gameRunning) {
+        // 如果游戏暂停，等待恢复
+        if (state == GameState::PAUSED) {
+            std::unique_lock<std::mutex> lock(gameMutex);
+            gameCondVar.wait(lock, [this] { return state != GameState::PAUSED || !gameRunning; });
+        }
+        
+        // 如果游戏结束，退出循环
+        if (state == GameState::EXIT || state == GameState::GAME_OVER || !gameRunning) {
+            break;
+        }
+        
+        // 获取输入事件
+        if (input != nullptr) {
+            InputEvent event;
+            if (input->getEvent(event)) {
+                // 将输入事件转换为方向
+                Direction dir = input->convertEventToDirection(event, snake->getDirection());
+                handleInput(dir);
+            }
+        }
+        
+        // 控制循环频率
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+}
+
+// 游戏主循环
+void Game::gameLoop() {
+    while (gameRunning) {
+        // 如果游戏暂停，等待恢复
+        if (state == GameState::PAUSED) {
+            std::unique_lock<std::mutex> lock(gameMutex);
+            gameCondVar.wait(lock, [this] { return state != GameState::PAUSED || !gameRunning; });
+        }
+        
+        // 如果游戏结束，退出循环
+        if (state == GameState::EXIT || state == GameState::GAME_OVER || !gameRunning) {
+            break;
+        }
+        
+        // 更新游戏状态
+        update();
+        
+        // 控制游戏速度
+        std::this_thread::sleep_for(std::chrono::milliseconds(speed));
+    }
+}
+
+// 渲染循环
+void Game::renderLoop() {
+    while (gameRunning) {
+        // 如果游戏暂停，等待恢复
+        if (state == GameState::PAUSED) {
+            std::unique_lock<std::mutex> lock(gameMutex);
+            gameCondVar.wait(lock, [this] { return state != GameState::PAUSED || !gameRunning; });
+        }
+        
+        // 如果游戏结束，退出循环
+        if (state == GameState::EXIT || !gameRunning) {
+            break;
+        }
+        
+        // 渲染游戏画面
+        render();
+        
+        // 控制渲染频率
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+}
+
+// 食物管理循环
+void Game::foodManagementLoop() {
+    while (gameRunning) {
+        // 如果游戏暂停，等待恢复
+        if (state == GameState::PAUSED) {
+            std::unique_lock<std::mutex> lock(gameMutex);
+            gameCondVar.wait(lock, [this] { return state != GameState::PAUSED || !gameRunning; });
+        }
+        
+        // 如果游戏结束，退出循环
+        if (state == GameState::EXIT || state == GameState::GAME_OVER || !gameRunning) {
+            break;
+        }
+        
+        // 如果需要生成新的食物（例如，当前没有食物）
+        if (food->getX() < 0 || food->getY() < 0) {
+            food->generate(map->getWidth(), map->getHeight(), snake->getBody());
+        }
+        
+        // 控制循环频率
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
 } 
