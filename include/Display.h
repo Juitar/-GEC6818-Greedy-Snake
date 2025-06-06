@@ -69,6 +69,8 @@ private:
     std::string foodBmp;
     std::string grass1Bmp;
     std::string grass2Bmp;
+    std::string game_overBmp;
+    std::string stateBmp;
 
     // 定义透明色（白色）
     static const unsigned int TRANSPARENT_COLOR = 0xFFFFFFFF;
@@ -78,7 +80,7 @@ private:
     
     // 背景是否已绘制的标志
     bool backgroundDrawn;
-
+    bool getBmpSize(const std::string& filePath, int* width, int* height);
 public:
     // 构造函数
     Display(int width, int height, int cellSize = 40);
@@ -124,6 +126,9 @@ public:
     
     // 绘制一个像素点
     void drawPoint(int x, int y, unsigned int color);
+
+    //绘制游戏结束界面
+    void drawGameOver(); 
 
     // 获取屏幕宽度
     int getScreenWidth() const { return screenWidth; }

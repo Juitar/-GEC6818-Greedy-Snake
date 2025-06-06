@@ -144,7 +144,6 @@ int main(int argc, char* argv[]) {
                 
                 // 设置游戏状态为EXIT，直接退出游戏
                 game.exit();
-                break;
             }
             
             // 控制主循环频率

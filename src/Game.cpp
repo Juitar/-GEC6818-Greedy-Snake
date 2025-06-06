@@ -18,9 +18,8 @@ Game::Game(int width, int height, int cellSize, const std::string& resourcePath)
       gameSpeed(300),
       originalGameSpeed(300),
       pepperEffectActive(false),
-      resourcePath(resourcePath) {
-    
-    // 初始化随机数生成器
+      resourcePath(resourcePath),
+      isGameOverDrawn(false) {  // 显式初始化
     std::srand(std::time(nullptr));
 }
 
@@ -167,17 +166,21 @@ void Game::gameLoop() {
         
         // 检查蛇是否撞到墙
         if (snake.checkCollisionWithWall(map.getWidth(), map.getHeight())) {
-            std::cout << "Snake hit wall! Game over." << std::endl;
             state = GameState::GAME_OVER;
-            continue; // 立即跳过当前循环，不再执行后续代码
+            display.drawGameOver();  // 直接调用绘制
+            display.update();
         }
-        
         // 处理碰撞（包括蛇与自身的碰撞和食物碰撞）
         handleCollisions();
         
         // 立即检查蛇是否碰撞，如果碰撞立即停止
         if (state == GameState::GAME_OVER) {
-            continue;
+            // 直接绘制游戏结束画面
+            display.drawGameOver();
+            display.update();
+            
+            // 等待3秒让玩家看到游戏结束画面
+            std::this_thread::sleep_for(std::chrono::seconds(3));
         }
         
         // 更新地图
@@ -185,8 +188,9 @@ void Game::gameLoop() {
         
         // 控制游戏速度
         std::this_thread::sleep_for(std::chrono::milliseconds(gameSpeed));
-    }
+        }
 }
+
 
 // 渲染循环
 void Game::renderLoop() {
@@ -226,8 +230,10 @@ void Game::renderLoop() {
         display.drawSnake(&snake);
         
         // 如果游戏结束，绘制游戏结束状态
-        if (state == GameState::GAME_OVER) {
-            display.drawGameState(state);
+        if (state == GameState::GAME_OVER && !isGameOverDrawn) {
+            display.drawGameOver();
+            isGameOverDrawn = true;
+            std::this_thread::sleep_for(std::chrono::seconds(5));
         }
     }
 }
@@ -429,6 +435,8 @@ void Game::handleCollisions() {
         }
     }
 }
+
+
 
 // 检查辣椒效果是否结束
 void Game::checkPepperEffect() {

@@ -86,6 +86,8 @@ private:
     // 资源路径
     std::string resourcePath;
     
+    bool isGameOverDrawn = false;
+
     // 游戏主循环
     void gameLoop();
     

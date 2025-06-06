@@ -140,9 +140,13 @@ bool Display::loadResources(const std::string& path) {
         // 兼容旧版本，将apple.bmp设为默认食物图片
         foodBmp = appleBmp;
         
+
         // 背景图片
         grass1Bmp = resourcePath + "/grass1.bmp";
         grass2Bmp = resourcePath + "/grass2.bmp";
+        
+        //game_over.bmp
+        game_overBmp = resourcePath + "/game_over.bmp";
         
         // 输出调试信息
         std::cout << "Checking resources..." << std::endl;
@@ -476,6 +480,7 @@ void Display::drawFood(const Food* food) {
     drawTransparentBmp(foodX, foodY, foodImage);
 }
 
+
 // 绘制分数
 void Display::drawScore(int score) {
     // 由于不需要分数系统，此方法可以保留但不使用
@@ -502,21 +507,13 @@ void Display::drawGameState(GameState state) {
             break;
     }
     
-    // 在屏幕底部绘制状态信息
-    int x = screenWidth / 2 - stateStr.length() * 4;
-    int y = screenHeight - 20;
-    
-    // 绘制一个黑色背景
-    for (int i = -2; i < (int)stateStr.length() * 8 + 2; i++) {
-        for (int j = -2; j < 12; j++) {
-            drawPoint(x + i, y + j, 0xFF000000);
-        }
-    }
+    drawBmp(12, 20, stateBmp);
     
     // 这里应该使用字体渲染库绘制文字
     // 由于没有字体渲染库，这里只是简单地在控制台输出状态
     std::cout << "Game State: " << stateStr << std::endl;
 }
+
 
 // 更新屏幕
 void Display::update() {
@@ -590,4 +587,41 @@ void Display::drawPoint(int x, int y, unsigned int color) {
     
     // 使用lcd_draw_point绘制像素点
     lcd_draw_point(fbp, &vinfo, x, y, color);
+}
+
+bool Display::getBmpSize(const std::string& filePath, int* width, int* height) {
+    FILE* fp = fopen(filePath.c_str(), "rb");
+    if (!fp) return false;
+
+    unsigned char header[54];
+    if (fread(header, 1, 54, fp) != 54) {
+        fclose(fp);
+        return false;
+    }
+
+    *width = *(int*)&header[18];
+    *height = *(int*)&header[22];
+
+    fclose(fp);
+    return true;
+}
+
+void Display::drawGameOver() {
+    if (!fbp) return;
+
+    int bmpWidth = 0, bmpHeight = 0;
+    if (!getBmpSize(game_overBmp, &bmpWidth, &bmpHeight)) {
+        std::cerr << "[Display] Failed to read BMP dimensions." << std::endl;
+        return;
+    }
+
+    int x = (screenWidth - bmpWidth) / 2;
+    int y = (screenHeight - bmpHeight) / 2;
+
+    
+    unsigned int transparentColor = 0xFFFFFFFF; 
+
+    drawTransparentBmp(x, y, game_overBmp, transparentColor);
+
+    update();
 }
